@@ -20,6 +20,7 @@ Cards that can be win conditions include: "Make contact with 4 corners", "Move 1
 ![RoadMap drawio](https://github.com/JaredXwos/Authority/assets/60027693/e9c544fc-6423-4a91-815f-c83d59da6758)
 # UI
 This is the UI thus far.
+
 ![Figma](https://github.com/JaredXwos/Authority/assets/60027693/14f714e8-4456-4c94-ad84-376d8f12b48f)
 # Help me
 Having more figma artists, game balancers, playtesters, and/or coders would be good.
