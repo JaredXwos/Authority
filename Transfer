@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <link rel="stylesheet" href="https://cdn.form.io/formiojs/formio.full.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <script src="https://cdn.form.io/js/formio.full.min.js"></script>
+    <script>
+        function checkAndCreateDebug(){
+            let debug = document.getElementById("debug");
+            if(!debug){
+                debug = document.createElement("p");
+                debug.id = "debug";
+                document.body.appendChild(debug);
+            }
+            return debug;
+        }
+        function log(message){
+            checkAndCreateDebug().innerHTML += (message + "\n\n");
+        }
+        function togglelogvisibility(){
+            const debug = checkAndCreateDebug();
+            debug.style.display =
+                debug.style.display === "none"? "block":"none";
+        }
+    </script>
+    <script>
+        function getXrm(){
+            const x = typeof Xrm !== "undefined"? Xrm: typeof window.parent.Xrm !== "undefined"? window.parent.Xrm: null;
+            if(x) return x;
+            log("Xrm does not exist. Please nest this within Dynamics 365. Using Xrm mock.");
+            window.Xrm = {
+                WebApi: {
+                    data: {},
+                    preprocessing: function(item){
+                        //add timestamp
+                        item.id = crypto.randomUUID();
+                        return item;
+                    },
+                    createRecord: async function(table, thing){
+                        const processed = this.preprocessing(thing);
+                        if(this.data[table]) this.data[table].push(processed);
+                        else this.data[table] = [processed];
+                        return processed;
+                    },
+                    retrieveMultipleRecords: async function(table, sql){
+                        if(sql!="?$select=*") log("This Xrm mock only supports ?$select=* at this moment.");
+                        if(!this.data[table]) log("The table is empty!");
+                        return {
+                            entities: this.data[table] ?? []
+                        };
+                    }
+                }
+            }
+            return window.Xrm;
+        }
+    </script>
+    <script>
+        function removeChildren(element){
+            while (element.firstChild)  element.removeChild(element.firstChild);
+        }
+        function insert(formName = "Test Name", partPrefix = 0, value = "Placeholdervalue"){
+            const data = {
+                "cr932_formname": formName + partPrefix.toString(),
+                "cr932_formdata": value,
+            }
+            try{
+                getXrm().WebApi.createRecord("cr932_forms", data).then(
+                    function success(result) {
+                        log("Part" + partPrefix + "created with id: " + result.id);
+                    },
+                    function (error) {
+                        log(error.message);
+                        // handle error conditions
+                    }
+                );
+            }
+            catch(e){
+                log(e.toString());
+            }
+        }
+        function fInsert(data){
+            const content = JSON.stringify(data);
+        }
+        function sInsert(){
+            const content = JSON.stringify(window.builder.schema);
+            const name = document.getElementById("FormName").value;
+            const contentarr = content.match(/.{1,5}/g) || [];
+            for(let i = 0; i < contentarr.length; i++) insert(name, i, contentarr[i]);
+        }
+        function newFormOption(name, value){
+            log("form option");
+            log(value);
+            const ob = JSON.parse(value);
+            const result = document.createElement("div");
+            const label = document.createElement("label");
+            label.innerHTML = name;
+            const edit = document.createElement("button");
+            edit.addEventListener("click", ()=>switchToCreateForm(ob));
+            edit.innerHTML = "Edit";
+            const fill = document.createElement("button");
+            fill.innerHTML = "Fill";
+            fill.addEventListener("click", ()=>{fillForm(ob)});
+            result.appendChild(label);
+            result.appendChild(edit);
+            result.appendChild(fill);
+            return result;
+        }
+        function sRetrieve(){
+            getXrm().WebApi.retrieveMultipleRecords("cr932_forms", "?$select=*").then(
+                async function success(result) {
+                    let name = "";
+                    let value = "";
+                    log(result.entities.length);
+                    for (const entity of result.entities) {
+                        log(entity["cr932_formname"]);
+                        const m = entity["cr932_formname"].match(/^([a-zA-Z_]+)(\d+)$/);
+                        if(!m) continue;
+                        if(m[1]===name) value += entity["cr932_formdata"];
+                        else {
+                            log("entered else")
+                            if(value){
+                                const ele = newFormOption(name,value);
+                                log(ele.toString());
+                                document.getElementById("picker").appendChild(ele);
+                            }
+                            name = m[1];
+                            value = entity["cr932_formdata"];
+                        }
+                        log("\n Form Name: " + m[1] + " Rest: " + m[2]);
+                    }
+                    if(value){
+                        const ele = newFormOption(name,value);
+                        log(ele.toString());
+                        document.getElementById("picker").appendChild(ele);
+                    }
+                },
+                function (error) {
+                    log(error.message);
+                }
+            );
+            
+        }
+        async function nukeDatabase(){
+            getXrm().WebApi.retrieveMultipleRecords("cr932_forms", "?$select=*").then(
+                async function success(result) {
+                    log("Deleting all "+result.entities.length+" entries from database");
+                    for (const entity of result.entities) {
+                        const id = entity["cr932_formsid"];
+                        log("\n"+id+" being deleted");
+                        getXrm().WebApi.deleteRecord("cr932_forms", id).then(
+                            function success(result) {
+                                log("Record deleted");
+                            },
+                            function (error) {
+                                log(error.message);
+                            }
+                        );
+                    }
+                },
+                function (error) {
+                    log(error.message);
+                }
+            );
+        }
+        async function fillForm(formobject = {}){
+            Formio.createForm(document.getElementById('filler'), formobject).
+                then(form=>{form.on("submit",(submission)=>{fInsert(submission.data)})});
+        }
+        async function switchToCreateForm(item={}){
+            log("Switch to create form");
+            document.getElementById("debug").innerText = "Switch to create form";
+            try{
+                window.builder = await Formio.builder(document.getElementById('builder'), item);
+            }catch(e){log(e.toString());}
+            document.getElementById("creator").style.display = "block";
+            document.getElementById("picker").style.display = "none";
+        }
+        function switchToPickForm(){
+            log("Check if load");
+            removeChildren(document.getElementById("picker"));
+            const button = document.createElement("button");
+            button.innerHTML = "New Form";
+            button.addEventListener("click", ()=>{switchToCreateForm()});
+            document.getElementById("picker").appendChild(button);
+            document.getElementById("creator").style.display = "none";
+            document.getElementById("picker").style.display = "block";
+            sRetrieve();
+        }
+
+    </script>
+</head>
+<body>
+<p id="debug" style="overflow: auto; height: 100px;"></p>
+<div>
+    <button onclick="togglelogvisibility()">Toggle Debug Visibility</button>
+    <button onclick="nukeDatabase()"> Delete Database</button>
+</div>
+<div id="creator" style="display:none">
+    <label for="FormName">Form Name:</label>
+    <input type="text" name="Form Name" id="FormName"/>
+    <button onclick=sInsert()>Save form</button>
+    <button onclick=switchToPickForm()></button>
+    <div id="builder"></div>
+</div>
+<div id="filler"></div>
+<div id="picker">
+    <p>Pick a form or create a new form</p>
+    <button onclick=switchToCreateForm()>New Form</button>
+</div>
+<script>
+    switchToPickForm();
+</script>
+</body>
+</html>
